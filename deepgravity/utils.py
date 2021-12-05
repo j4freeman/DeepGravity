@@ -2,11 +2,9 @@ import random
 import numpy as np
 import pandas as pd
 import json
-import zipfile
 import ast
 import pickle
 import torch
-import string
 import os
 
 import geopandas

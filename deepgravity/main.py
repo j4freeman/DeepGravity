@@ -177,7 +177,7 @@ def evaluate():
 
     cpc_df.to_csv(fname, index=False)
 
-    flow_list = []
+    # flow_list = []
 
     # for loc1 in tqdm(oa2features.keys()):
     #     features = [all_dataset.get_features(loc1, loc2) for loc2 in oa2features.keys()]
