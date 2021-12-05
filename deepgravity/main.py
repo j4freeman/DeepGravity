@@ -2,8 +2,6 @@ from __future__ import print_function
 
 import argparse
 
-import torch.nn as nn
-from tqdm import tqdm
 import torch.optim as optim
 import torch.utils.data.distributed
 
@@ -106,11 +104,11 @@ def train(epoch):
         
         loss.backward()
         optimizer.step()
-        running_loss += loss
+        running_loss += loss.item()
 
         if batch_idx % args.log_interval == 0:
             if batch_idx * len(b_data) == len(train_loader) - 1:
-                print('Train Epoch: {} [{}/{} \tLoss: {:.6f}'.format(epoch, batch_idx * len(b_data), len(train_loader), loss/args.batch_size))
+                print('Train Epoch: {} [{}/{} \tLoss: {:.6f}'.format(epoch, batch_idx * len(b_data), len(train_loader), loss.item()/args.batch_size))
 
     running_loss = running_loss / len(train_dataset)
     training_acc = training_acc / len(train_dataset)
@@ -238,8 +236,8 @@ train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_
 test_dataset = dgd.FlowDataset(test_data, **test_dataset_args)
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.test_batch_size)
 
-all_data = test_data + train_data
-all_dataset = dgd.FlowDataset(all_data, **test_dataset_args)
+# all_data = test_data + train_data
+# all_dataset = dgd.FlowDataset(all_data, **test_dataset_args)
 
 dim_input = len(train_dataset.get_features(train_data[0], train_data[0]))
 
