@@ -3,7 +3,7 @@ from __future__ import print_function
 import argparse
 
 import torch.nn as nn
-import torch.nn.functional as F
+from tqdm import tqdm
 import torch.optim as optim
 import torch.utils.data.distributed
 
@@ -106,11 +106,11 @@ def train(epoch):
         
         loss.backward()
         optimizer.step()
-        running_loss += loss.item()
+        running_loss += loss
 
         if batch_idx % args.log_interval == 0:
             if batch_idx * len(b_data) == len(train_loader) - 1:
-                print('Train Epoch: {} [{}/{} \tLoss: {:.6f}'.format(epoch, batch_idx * len(b_data), len(train_loader), loss.item()/args.batch_size))
+                print('Train Epoch: {} [{}/{} \tLoss: {:.6f}'.format(epoch, batch_idx * len(b_data), len(train_loader), loss/args.batch_size))
 
     running_loss = running_loss / len(train_dataset)
     training_acc = training_acc / len(train_dataset)
@@ -152,7 +152,7 @@ def evaluate():
         for data_temp in test_loader:
             b_data = data_temp[0]
             b_target = data_temp[1]
-            ids[0] = ids[0] + 1
+            ids[0] = data_temp[2][0][0]
             for id, data, target in zip(ids, b_data, b_target):
                 if args.cuda:
                     data, target = data.cuda(), target.cuda()
@@ -164,7 +164,7 @@ def evaluate():
 
     def cpc_from_num(edf, oa2tile, o2d2flow):
         edf['tile'] = edf['locID'].apply(lambda x: oa2tile[x])
-        edf['tot_flow'] = edf['locID'].apply(lambda x: sum(o2d2flow[x].values()) if x in o2d2flow else 0)
+        edf['tot_flow'] = edf['locID'].apply(lambda x: sum(o2d2flow[x].values()) if x in o2d2flow else 1e-6)
         cpc_df = pd.DataFrame(edf.groupby('tile').apply(\
                     lambda x: x['cpc_num'].sum() / 2 / x['tot_flow'].sum()), \
                 columns=['cpc']).reset_index()
@@ -176,6 +176,21 @@ def evaluate():
     fname = './results/tile2cpc_{}_{}.csv'.format(model_type, args.dataset)
 
     cpc_df.to_csv(fname, index=False)
+
+    flow_list = []
+
+    # for loc1 in tqdm(oa2features.keys()):
+    #     features = [all_dataset.get_features(loc1, loc2) for loc2 in oa2features.keys()]
+    #     true_flows = [all_dataset.get_flow(loc1, loc2) for loc2 in oa2features.keys()]
+    #     features = torch.from_numpy(np.array(features)).float().reshape(1, len(features), -1)
+    #     true_flows = torch.from_numpy(np.array(true_flows)).float().reshape(1, -1)
+    #     output = model.forward(features)
+    #     flows = torch.nn.LogSoftmax()(output.squeeze()) * -1 * true_flows.squeeze()
+    #     flows = flows.detach().numpy()
+    #     for idx, loc2 in enumerate(oa2features.keys()):
+    #         flow_list.append([loc1, loc2, flows[idx]])
+
+    # pd.DataFrame(flow_list, columns=["o", "d", "flow"]).to_csv('./results/pred_flows_{}_{}.csv'.format(model_type, args.dataset))
 
     
     
@@ -222,6 +237,9 @@ train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_
 
 test_dataset = dgd.FlowDataset(test_data, **test_dataset_args)
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.test_batch_size)
+
+all_data = test_data + train_data
+all_dataset = dgd.FlowDataset(all_data, **test_dataset_args)
 
 dim_input = len(train_dataset.get_features(train_data[0], train_data[0]))
 
