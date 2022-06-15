@@ -1,12 +1,9 @@
-import random
 import numpy as np
 import pandas as pd
 import json
-import zipfile
-import gzip
+import ast
 import pickle
 import torch
-import string
 import os
 
 import geopandas
@@ -20,9 +17,15 @@ path = './models/deepgravity.py'
 ffnn = SourceFileLoader('ffnn', path).load_module()
 
 def _is_support_files_computed(db):
-    if os.path.isdir(db+'/processed'):
+    if os.path.isdir(db + '/processed'):
         base = db + '/processed/'
-        return os.path.isfile(base+'tileid2oa2handmade_features.json') and os.path.isfile(base+'oa_gdf.csv.gz') and os.path.isfile(base+'flows_oa.csv.zip') and os.path.isfile(base+'msoa_df_all.csv.zip') and os.path.isfile(base+'oa2features.pkl') and os.path.isfile(base+'oa2centroid.pkl')
+        print(base)
+        return os.path.isfile(base+'tileid2oa2handmade_features.json') and \
+               os.path.isfile(base+'oa_gdf.csv.gz') and \
+               os.path.isfile(base+'flows_oa.csv.zip') and \
+               os.path.isfile(base+'oa2features.pkl') and \
+               os.path.isfile(base+'oa2centroid.pkl') and \
+               os.path.isfile(base+'test_tiles.csv')
     else:
         return False
     
@@ -41,6 +44,13 @@ def _check_base_files(db_dir):
 def _compute_support_files(db_dir, tile_id_column, tile_geometry, oa_id_column, oa_geometry, flow_origin_column, flow_destination_column, flow_flows_column):
     # first, we check if there are at least the needed files into the base directory. 
     _check_base_files(db_dir)
+
+    if not os.path.isdir(db_dir + '/processed/'):
+        os.mkdir(db_dir + '/processed')
+
+    if not os.path.isdir('./results/'):
+        os.mkdir('./results')
+
     print('Generating the processed files - it may take a while....')
     print('Reading tessellation....')
     try: 
@@ -78,7 +88,7 @@ def _compute_support_files(db_dir, tile_id_column, tile_geometry, oa_id_column, 
     
     oa2centroid = {}
     for i,row in temp_out.iterrows():
-        oa2centroid[row['geo_code']] = row['centroid']
+        oa2centroid[row['geo_code']] = ast.literal_eval(row['centroid'])
         
     with open(db_dir+'/processed/oa2centroid.pkl', 'wb') as handle:
         pickle.dump(oa2centroid, handle)
@@ -103,27 +113,44 @@ def _compute_support_files(db_dir, tile_id_column, tile_geometry, oa_id_column, 
         od2flow[(row['residence'],row['workplace'])] = row['commuters']
         
     with open(db_dir+'/processed/od2flow.pkl', 'wb') as handle:
-        pickle.dump(oa2centroid, handle)
+        pickle.dump(od2flow, handle)
     
-    features = pd.read_csv(db_dir+'features.csv', dtype={oa_id_column:str})
+    features = pd.read_csv(db_dir+'/features.csv', dtype={oa_id_column:str})
     
     oa2features = {}
     for i,row in features.iterrows():
-        oa2features[row[0]]=row[1:].values
+        oa2features[row[1]]=row[2:].values.tolist()
+
+    with open(db_dir+'/processed/oa2features.pkl', 'wb') as handle:
+        pickle.dump(oa2features, handle)
 
     tileid2oa2handmade_features = dict()
+    mapping_dict = {oa_id: [] for oa_id in mapping[oa_id_column].unique()}
+
     for i,row in mapping.iterrows():
         if row[tile_id_column] not in tileid2oa2handmade_features:
             tileid2oa2handmade_features[row[tile_id_column]] = dict()
             tileid2oa2handmade_features[row[tile_id_column]][row[oa_id_column]]=dict()
         else:
             tileid2oa2handmade_features[row[tile_id_column]][row[oa_id_column]]=dict()
+        mapping_dict[row[oa_id_column]].append(row[tile_id_column])
     for i,row in features.iterrows():
         for item in zip(list(row.keys()),row.values):
-            tileid2oa2handmade_features[row[tile_id_column]][item[0]]=[item[1]]
+            if "named" in item[0]:
+                continue
+            for tile_id in mapping_dict[row[oa_id_column]]:
+                tileid2oa2handmade_features[tile_id][row[oa_id_column]][item[0]]=[item[1]]
     
-    with open('tileid2oa2handmade_features.json', 'w') as f:
+    with open(db_dir + '/processed/tileid2oa2handmade_features.json', 'w') as f:
         json.dump(tileid2oa2handmade_features, f)
+
+    all_tiles = mapping[tile_id_column].unique()
+
+    train = np.random.choice(all_tiles, int(len(all_tiles)*0.7), False) 
+    test = [x for x in all_tiles if x not in train]
+
+    pd.DataFrame(train).to_csv(db_dir + '/processed/train_tiles.csv', index=False, header=False)
+    pd.DataFrame(test).to_csv(db_dir + '/processed/test_tiles.csv', index=False, header=False)
             
             
 def tessellation_definition(db_dir,name,size):
@@ -133,8 +160,9 @@ def tessellation_definition(db_dir,name,size):
     
 def load_data(db_dir, tile_id_column, tile_geometry, oa_id_column, oa_geometry, flow_origin_column, flow_destination_column, flow_flows_column):
     # check if there are the computed information
-    #if not _is_support_files_computed(db_dir):
-    #    _compute_support_files(db_dir, tile_id_column, tile_geometry, oa_id_column, oa_geometry, flow_origin_column, flow_destination_column, flow_flows_column)
+    if not _is_support_files_computed(db_dir):
+        print("Computing support files! ")
+        _compute_support_files(db_dir, tile_id_column, tile_geometry, oa_id_column, oa_geometry, flow_origin_column, flow_destination_column, flow_flows_column)
         
     # tileid2oa2features2vals
     with open(db_dir + '/processed/tileid2oa2handmade_features.json') as f:
